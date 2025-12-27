@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tor Network Monitor - Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #2a2a3e;
+        }
+
+        h1 {
+            color: #00d4ff;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 1.1em;
+        }
+
+        .control-panel {
+            background: rgba(42, 42, 62, 0.8);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+            border: 1px solid #333;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-start {
+            background: linear-gradient(135deg, #00b09b, #96c93d);
+            color: white;
+        }
+
+        .btn-stop {
+            background: linear-gradient(135deg, #ff416c, #ff4b2b);
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .status-dot.active {
+            background: #00ff00;
+            box-shadow: 0 0 10px #00ff00;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.inactive {
+            background: #ff4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(42, 42, 62, 0.8);
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid #333;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: #00d4ff;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333;
+        }
+
+        .card-title {
+            color: #00d4ff;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+
+        .card-counter {
+            background: rgba(0, 212, 255, 0.1);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+
+        .stat-item {
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border-left: 4px solid #00d4ff;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .visualization-section {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .viz-card {
+            background: rgba(42, 42, 62, 0.8);
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid #333;
+            backdrop-filter: blur(10px);
+            min-height: 500px;
+        }
+
+        .timeline-container {
+            width: 100%;
+            height: 300px;
+            position: relative;
+        }
+
+        .packet-list {
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .packet-item {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border-left: 4px solid;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .packet-tor {
+            border-left-color: #ff4444;
+        }
+
+        .packet-tls {
+            border-left-color: #00ff00;
+        }
+
+        .packet-normal {
+            border-left-color: #00d4ff;
+        }
+
+        .timestamp {
+            color: #888;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }
+
+        .flow-line {
+            stroke: #00d4ff;
+            stroke-width: 2;
+        }
+
+        .flow-circle {
+            fill: #00d4ff;
+            stroke: white;
+            stroke-width: 1.5;
+        }
+
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            border: 1px solid #333;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+
+        /* Timeline specific styles */
+        .timeline-axis {
+            stroke: #444;
+            stroke-width: 1;
+        }
+
+        .timeline-grid {
+            stroke: #222;
+            stroke-width: 0.5;
+        }
+
+        .circuit-bar {
+            fill: #00d4ff;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+        }
+
+        .circuit-bar:hover {
+            opacity: 1;
+        }
+
+        .timeline-label {
+            fill: #888;
+            font-size: 12px;
+            text-anchor: middle;
+        }
+
+        .timeline-title {
+            fill: #00d4ff;
+            font-size: 14px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Tor Network Monitor</h1>
+            <div class="subtitle">Advanced Correlation Engine & Timeline Visualization</div>
+        </header>
+
+        <div class="control-panel">
+            <button class="btn btn-start" onclick="startCapture()" id="startBtn">
+                ▶ Start Capture
+            </button>
+            <button class="btn btn-stop" onclick="stopCapture()" id="stopBtn" disabled>
+                ⏹ Stop Capture
+            </button>
+
+            <div class="status-indicator">
+                <div class="status-dot inactive" id="statusDot"></div>
+                <span id="statusText">Capture Inactive</span>
+            </div>
+
+            <button class="btn" onclick="resetData()" style="background: #555; color: white;">
+                🔄 Reset Data
+            </button>
+
+            <button class="btn" onclick="refreshStats()" style="background: #2a2a3e; color: #00d4ff; border: 1px solid #00d4ff;">
+                📊 Refresh Stats
+            </button>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📦 Packet Statistics</div>
+                    <div class="card-counter" id="totalPackets">0</div>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Total Bytes</div>
+                        <div class="stat-value" id="totalBytes">0 B</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Active Flows</div>
+                        <div class="stat-value" id="activeFlows">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Encrypted</div>
+                        <div class="stat-value" id="encryptedRatio">0%</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Tor Related</div>
+                        <div class="stat-value" id="torRatio">0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">🕸️ Tor Network</div>
+                    <div class="card-counter" id="totalCircuits">0</div>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <div class="stat-label">Relays Online</div>
+                        <div class="stat-value" id="torRelays">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Exit Nodes</div>
+                        <div class="stat-value" id="exitNodes">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Unique JA3</div>
+                        <div class="stat-value" id="uniqueJA3">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">Correlations</div>
+                        <div class="stat-value" id="correlations">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timeline Visualization Section -->
+        <div class="viz-card">
+            <div class="card-header">
+                <div class="card-title">📈 Circuit Activity Timeline</div>
+                <div class="card-counter" id="timelineCount">0 events</div>
+            </div>
+            <div class="timeline-container" id="timelineViz">
+                <!-- Timeline will be rendered here by D3.js -->
+            </div>
+        </div>
+
+        <div class="visualization-section">
+            <div class="viz-card">
+                <div class="card-header">
+                    <div class="card-title">🔗 Live Packet Stream</div>
+                    <div class="card-counter" id="packetRate">0/s</div>
+                </div>
+                <div class="packet-list" id="packetList">
+                    <!-- Packets will be added here -->
+                </div>
+            </div>
+
+            <div class="viz-card">
+                <div class="card-header">
+                    <div class="card-title">⚡ Real-time Stats</div>
+                    <div class="card-counter" id="updateTime">Now</div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="protocolChart"></canvas>
+                </div>
+                <div style="margin-top: 20px;">
+                    <div class="stat-item">
+                        <div class="stat-label">Current Interface</div>
+                        <div class="stat-value" id="currentInterface">Waiting...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="viz-card">
+            <div class="card-header">
+                <div class="card-title">🔄 Detected Circuits</div>
+                <div class="card-counter" id="circuitCount">0</div>
+            </div>
+            <div id="circuitList" style="max-height: 300px; overflow-y: auto;">
+                <!-- Circuits will be listed here -->
+            </div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+
+
+<script>
+// Global variables
+let socket = null;
+let packetChart = null;
+let flowChart = null;
+let ja3Chart = null;
+let timelineChart = null;
+let protocolTimelineChart = null;
+let currentPackets = [];
+let currentStats = {};
+let currentCorrelations = [];
+let currentFlows = [];
+let currentLatencies = [];
+let consensusUpdateTime = null;
+let timelineData = null;
+
+// Initialize application
+document.addEventListener('DOMContentLoaded', function() {
+    initializeCharts();
+    connectWebSocket();
+    loadInitialData();
+    startStatsRefresh();
+    initializeTimelineVisualization();
+});
+
+// WebSocket Connection
+function connectWebSocket() {
+    const wsUrl = `ws://${window.location.hostname}:5000`;
+    socket = io(wsUrl);
+
+    socket.on('connect', () => {
+        updateConnectionStatus(true);
+        console.log('Connected to WebSocket server');
+    });
+
+    socket.on('disconnect', () => {
+        updateConnectionStatus(false);
+        console.log('Disconnected from WebSocket server');
+    });
+
+    socket.on('connected', (data) => {
+        console.log('Server connection confirmed:', data);
+    });
+
+    socket.on('packet_update', (packets) => {
+        updatePacketTable(packets);
+    });
+
+    socket.on('stats_update', (stats) => {
+        updateStatistics(stats);
+    });
+
+    socket.on('correlation_update', (correlations) => {
+        updateCorrelations(correlations);
+    });
+
+    socket.on('capture_status', (status) => {
+        updateCaptureStatus(status);
+    });
+
+    socket.on('stats_response', (stats) => {
+        updateStatistics(stats);
+    });
+}
+
+function updateConnectionStatus(connected) {
+    const statusEl = document.getElementById('connectionStatus');
+    const alertEl = document.getElementById('connectionAlert');
+    const alertMsg = document.getElementById('alertMessage');
+
+    if (connected) {
+        statusEl.innerHTML = '<span class="badge status-online">Connected</span>';
+        alertEl.classList.add('d-none');
+    } else {
+        statusEl.innerHTML = '<span class="badge status-offline">Disconnected</span>';
+        alertEl.classList.remove('d-none');
+        alertEl.classList.remove('alert-success');
+        alertEl.classList.add('alert-danger');
+        alertMsg.textContent = 'Disconnected from server';
+    }
+}
+
+function updateCaptureStatus(status) {
+    const statusEl = document.getElementById('captureStatus');
+    const startBtn = document.getElementById('startCaptureBtn');
+    const stopBtn = document.getElementById('stopCaptureBtn');
+
+    if (status.status === 'success') {
+        if (status.message.includes('started')) {
+            statusEl.innerHTML = '<span class="badge status-capturing">Capturing</span>';
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+        } else if (status.message.includes('stopped')) {
+            statusEl.innerHTML = '<span class="badge status-offline">Not Capturing</span>';
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+    }
+}
+
+// API Functions
+function startCapture() {
+    if (socket && socket.connected) {
+        socket.emit('start_capture');
+    } else {
+        fetch('/api/capture/start', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                updateCaptureStatus(data);
+            })
+            .catch(error => {
+                console.error('Error starting capture:', error);
+            });
+    }
+}
+
+function stopCapture() {
+    if (socket && socket.connected) {
+        socket.emit('stop_capture');
+    } else {
+        fetch('/api/capture/stop', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                updateCaptureStatus(data);
+            })
+            .catch(error => {
+                console.error('Error stopping capture:', error);
+            });
+    }
+}
+
+function loadInitialData() {
+    // Load statistics
+    fetch('/api/stats')
+        .then(response => response.json())
+        .then(data => {
+            updateStatistics(data);
+        });
+
+    // Load relays
+    loadRelays();
+
+    // Load correlations
+    refreshCorrelations();
+
+    // Load timeline
+    loadEnhancedTimeline();
+}
+
+function loadRelays() {
+    fetch('/api/relays')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('relaysCount').textContent = data.total_relays;
+            document.getElementById('entryGuards').textContent = data.entry_guards.length + ' Entry';
+            document.getElementById('exitRelays').textContent = data.exit_relays.length + ' Exit';
+            document.getElementById('middleRelays').textContent = data.middle_relays.length + ' Middle';
+
+            consensusUpdateTime = new Date();
+            document.getElementById('consensusTime').textContent =
+                consensusUpdateTime.toLocaleTimeString();
+        });
+}
+
+function refreshCorrelations() {
+    fetch('/api/correlations?limit=50')
+        .then(response => response.json())
+        .then(data => {
+            updateCorrelations(data.correlations || data);
+        });
+}
+
+// Timeline Functions
+function loadEnhancedTimeline() {
+    // Load enhanced timeline data
+    fetch('/api/timeline/enhanced')
+        .then(response => response.json())
+        .then(data => {
+            timelineData = data;
+            updateTimelineVisualization(data);
+            updateTopLists(data.sources, data.destinations);
+        });
+
+    // Load circuit timeline
+    fetch('/api/timeline/circuits')
+        .then(response => response.json())
+        .then(data => {
+            updateCircuitTimelineChart(data);
+        });
+
+    // Load protocol timeline
+    fetch('/api/timeline/protocols')
+        .then(response => response.json())
+        .then(data => {
+            updateProtocolTimelineChart(data);
+        });
+}
+
+function initializeTimelineVisualization() {
+    // Create tab buttons for timeline
+    const timelineContainer = document.querySelector('#timeline .card-body');
+    timelineContainer.innerHTML = `
+        <div class="row">
+            <div class="col-md-12 mb-3">
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-tor btn-sm" onclick="showTimelineTab('activity')">
+                        <i class="bi bi-activity me-1"></i>Activity
+                    </button>
+                    <button type="button" class="btn btn-tor btn-sm" onclick="showTimelineTab('circuits')">
+                        <i class="bi bi-shuffle me-1"></i>Circuits
+                    </button>
+                    <button type="button" class="btn btn-tor btn-sm" onclick="showTimelineTab('protocols')">
+                        <i class="bi bi-diagram-3 me-1"></i>Protocols
+                    </button>
+                    <button type="button" class="btn btn-tor btn-sm" onclick="showTimelineTab('trends')">
+                        <i class="bi bi-graph-up me-1"></i>Trends
+                    </button>
+                </div>
+                <div class="btn-group ms-2" role="group">
+                    <button type="button" class="btn btn-tor btn-sm" onclick="changeTimelineInterval(60)">
+                        1m
+                    </button>
+                    <button type="button" class="btn btn-tor btn-sm" onclick="changeTimelineInterval(300)">
+                        5m
+                    </button>
+                    <button type="button" class="btn btn-tor btn-sm" onclick="changeTimelineInterval(900)">
+                        15m
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div id="timelineChartsContainer">
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <canvas id="timelineChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-bar-chart me-2"></i>Packet Rate Timeline
+                        </div>
+                        <div class="card-body">
+                            <canvas id="packetRateChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="bi bi-pie-chart me-2"></i>Traffic Composition
+                        </div>
+                        <div class="card-body">
+                            <canvas id="trafficCompositionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Initialize additional charts
+    initializeTimelineCharts();
+}
+
+function initializeTimelineCharts() {
+    // Activity Timeline Chart
+    const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+    timelineChart = new Chart(timelineCtx, {
+        type: 'line',
+        data: {
+            datasets: []
+        },
+        options: {
+            responsive: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: 'minute',
+                        displayFormats: {
+                            minute: 'HH:mm'
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Time'
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Count'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            label += context.parsed.y;
+                            return label;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Packet Rate Chart
+    const packetRateCtx = document.getElementById('packetRateChart').getContext('2d');
+    window.packetRateChart = new Chart(packetRateCtx, {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Packets/sec',
+                data: [],
+                backgroundColor: '#7d4698',
+                borderColor: '#a87cc2',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Packets per Second'
+                    }
+                }
+            }
+        }
+    });
+
+    // Traffic Composition Chart
+    const trafficCtx = document.getElementById('trafficCompositionChart').getContext('2d');
+    window.trafficCompositionChart = new Chart(trafficCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Tor Traffic', 'Encrypted', 'Plain Text'],
+            datasets: [{
+                data: [0, 0, 0],
+                backgroundColor: ['#28a745', '#ffc107', '#6c757d']
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+}
+
+function updateTimelineVisualization(data) {
+    if (!data || !data.timeline || data.timeline.length === 0) {
+        return;
+    }
+
+    // Update main timeline chart
+    const labels = data.timeline.map(item => new Date(item.time * 1000));
+
+    timelineChart.data.labels = labels;
+    timelineChart.data.datasets = [
+        {
+            label: 'Total Packets',
+            data: data.timeline.map(item => item.packet_count),
+            borderColor: '#a87cc2',
+            backgroundColor: 'rgba(168, 124, 194, 0.1)',
+            tension: 0.4,
+            fill: true
+        },
+        {
+            label: 'Tor Packets',
+            data: data.timeline.map(item => item.tor_count),
+            borderColor: '#28a745',
+            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+            tension: 0.4,
+            fill: true
+        },
+        {
+            label: 'Encrypted Packets',
+            data: data.timeline.map(item => item.encrypted_count),
+            borderColor: '#ffc107',
+            backgroundColor: 'rgba(255, 193, 7, 0.1)',
+            tension: 0.4,
+            fill: true
+        }
+    ];
+
+    timelineChart.update();
+
+    // Update packet rate chart
+    packetRateChart.data.labels = data.timeline.map(item =>
+        new Date(item.time * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})
+    );
+    packetRateChart.data.datasets[0].data = data.timeline.map(item => item.packets_per_second);
+    packetRateChart.update();
+
+    // Update traffic composition chart
+    const totalTor = data.timeline.reduce((sum, item) => sum + item.tor_count, 0);
+    const totalEncrypted = data.timeline.reduce((sum, item) => sum + item.encrypted_count, 0);
+    const totalPackets = data.timeline.reduce((sum, item) => sum + item.packet_count, 0);
+    const totalPlain = totalPackets - totalTor - totalEncrypted;
+
+    trafficCompositionChart.data.datasets[0].data = [totalTor, totalEncrypted, Math.max(0, totalPlain)];
+    trafficCompositionChart.update();
+}
+
+function updateCircuitTimelineChart(data) {
+    if (!data || data.length === 0) return;
+
+    // This would update a separate circuit timeline chart
+    // For now, we'll add it to the main chart if we're viewing circuits
+    const timelineTab = document.querySelector('#timelineChartsContainer');
+    // You can add specific circuit timeline visualization here
+}
+
+function updateProtocolTimelineChart(data) {
+    if (!data || data.length === 0) return;
+
+    // This would update protocol timeline visualization
+    console.log('Protocol timeline data:', data);
+}
+
+function updateTopLists(sources, destinations) {
+    // Update top sources
+    const sourcesContainer = document.getElementById('topSources');
+    if (sourcesContainer) {
+        let sourcesHtml = '<table class="table table-dark table-sm">';
+        sources.forEach(source => {
+            sourcesHtml += `
+                <tr>
+                    <td><code>${source.ip}</code></td>
+                    <td>${source.count}</td>
+                    <td>${source.percentage}%</td>
+                </tr>
+            `;
+        });
+        sourcesHtml += '</table>';
+        sourcesContainer.innerHTML = sourcesHtml;
+    }
+
+    // Update top destinations
+    const destinationsContainer = document.getElementById('topDestinations');
+    if (destinationsContainer) {
+        let destinationsHtml = '<table class="table table-dark table-sm">';
+        destinations.forEach(destination => {
+            destinationsHtml += `
+                <tr>
+                    <td><code>${destination.ip}</code></td>
+                    <td>${destination.count}</td>
+                    <td>${destination.percentage}%</td>
+                </tr>
+            `;
+        });
+        destinationsHtml += '</table>';
+        destinationsContainer.innerHTML = destinationsHtml;
+    }
+}
+
+function showTimelineTab(tabName) {
+    // This function would switch between different timeline visualizations
+    const buttons = document.querySelectorAll('#timeline .btn-group .btn');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+
+    // Update charts based on selected tab
+    switch(tabName) {
+        case 'activity':
+            loadEnhancedTimeline();
+            break;
+        case 'circuits':
+            fetch('/api/timeline/circuits')
+                .then(response => response.json())
+                .then(data => {
+                    // Create circuit timeline visualization
+                    createCircuitTimeline(data);
+                });
+            break;
+        case 'protocols':
+            fetch('/api/timeline/protocols')
+                .then(response => response.json())
+                .then(data => {
+                    // Create protocol timeline visualization
+                    createProtocolTimeline(data);
+                });
+            break;
+        case 'trends':
+            showTrendAnalysis();
+            break;
+    }
+}
+
+function changeTimelineInterval(seconds) {
+    fetch(`/api/timeline/enhanced?interval=${seconds}`)
+        .then(response => response.json())
+        .then(data => {
+            updateTimelineVisualization(data);
+        });
+}
+
+function createCircuitTimeline(data) {
+    const container = document.getElementById('timelineChartsContainer');
+    container.innerHTML = `
+        <div class="card">
+            <div class="card-header">Circuit Activity Timeline</div>
+            <div class="card-body">
+                <canvas id="circuitTimelineChart"></canvas>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Circuit Statistics</div>
+                    <div class="card-body" id="circuitStats">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Circuit Duration Analysis</div>
+                    <div class="card-body">
+                        <canvas id="circuitDurationChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Create circuit timeline chart
+    const ctx = document.getElementById('circuitTimelineChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.map(item => new Date(item.time * 1000).toLocaleTimeString()),
+            datasets: [{
+                label: 'Circuit Activity',
+                data: data.map(item => item.total_circuits),
+                borderColor: '#28a745',
+                backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Number of Circuits'
+                    }
+                }
+            }
+        }
+    });
+
+    // Update circuit stats
+    const statsHtml = `
+        <p>Total Circuit Events: ${data.reduce((sum, item) => sum + item.total_circuits, 0)}</p>
+        <p>Unique Entry Guards: ${new Set(data.flatMap(item => Array.from(item.entries || []))).size}</p>
+        <p>Unique Exit Relays: ${new Set(data.flatMap(item => Array.from(item.exits || []))).size}</p>
+        <p>Peak Activity: ${Math.max(...data.map(item => item.total_circuits))} circuits/min</p>
+    `;
+    document.getElementById('circuitStats').innerHTML = statsHtml;
+}
+
+// [Keep all the existing functions below from your original code...]
+// Packet Table Functions, Statistics Functions, Flow Analysis Functions,
+// Circuit Correlation Functions, Visualization Functions, Report Functions, etc.
+
+// Add this function to refresh timeline periodically
+function startTimelineRefresh() {
+    setInterval(() => {
+        if (document.querySelector('#timeline').classList.contains('active')) {
+            loadEnhancedTimeline();
+        }
+    }, 10000); // Refresh every 10 seconds
+}
+
+// Initialize timeline refresh
+document.addEventListener('DOMContentLoaded', function() {
+    // ... existing initialization code ...
+    startTimelineRefresh();
+});</script>
+</body>
+</html>

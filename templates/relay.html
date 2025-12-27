@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Tor Relay Visualization</title>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+<h2>Tor Entry / Exit Relays</h2>
+<a href="/">Back to Monitor</a>
+
+<h3>Entry Relays</h3>
+<ul id="entry"></ul>
+
+<h3>Exit Relays</h3>
+<ul id="exit"></ul>
+
+<script>
+const s = io();
+s.on("relay_update", d=>{
+  entry.innerHTML="";
+  exit.innerHTML="";
+  d.entry.forEach(ip=>entry.innerHTML+=`<li>${ip}</li>`);
+  d.exit.forEach(ip=>exit.innerHTML+=`<li>${ip}</li>`);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,1802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tor Network Monitor - Advanced Correlation Engine</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --tor-dark: #3c1f7a;
+            --tor-purple: #7d4698;
+            --tor-light: #a87cc2;
+            --tor-green: #29a746;
+            --tor-red: #dc3545;
+            --tor-yellow: #ffc107;
+            --tor-gray: #6c757d;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            color: #e9ecef;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: linear-gradient(90deg, var(--tor-dark) 0%, var(--tor-purple) 100%);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .card {
+            background: rgba(25, 25, 35, 0.9);
+            border: 1px solid rgba(125, 70, 152, 0.3);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(125, 70, 152, 0.2);
+        }
+
+        .card-header {
+            background: rgba(60, 31, 122, 0.3);
+            border-bottom: 1px solid rgba(125, 70, 152, 0.3);
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .table-dark {
+            background: rgba(33, 37, 41, 0.8);
+        }
+
+        .bg-tor-dark { background-color: var(--tor-dark); }
+        .bg-tor-purple { background-color: var(--tor-purple); }
+        .bg-tor-light { background-color: var(--tor-light); }
+
+        .text-tor-green { color: var(--tor-green); }
+        .text-tor-red { color: var(--tor-red); }
+        .text-tor-yellow { color: var(--tor-yellow); }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .status-online { background: rgba(40, 167, 69, 0.2); color: var(--tor-green); }
+        .status-offline { background: rgba(220, 53, 69, 0.2); color: var(--tor-red); }
+        .status-capturing { background: rgba(255, 193, 7, 0.2); color: var(--tor-yellow); }
+
+        .packet-row {
+            transition: background-color 0.3s ease;
+            border-left: 4px solid transparent;
+        }
+
+        .packet-row:hover {
+            background-color: rgba(125, 70, 152, 0.1) !important;
+        }
+
+        .packet-tor { border-left-color: var(--tor-green); }
+        .packet-encrypted { border-left-color: var(--tor-yellow); }
+        .packet-normal { border-left-color: var(--tor-gray); }
+
+        .connection-status {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .tab-content {
+            padding: 20px;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .flow-visual {
+            height: 200px;
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+
+        .circuit-node {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .circuit-line {
+            position: absolute;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--tor-light), transparent);
+            transform-origin: left center;
+        }
+
+        .modal-content {
+            background: rgba(25, 25, 35, 0.95);
+            border: 1px solid rgba(125, 70, 152, 0.4);
+        }
+
+        .modal-header {
+            border-bottom: 1px solid rgba(125, 70, 152, 0.3);
+        }
+
+        .modal-footer {
+            border-top: 1px solid rgba(125, 70, 152, 0.3);
+        }
+
+        .btn-tor {
+            background: linear-gradient(90deg, var(--tor-dark), var(--tor-purple));
+            border: none;
+            color: white;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-tor:hover {
+            background: linear-gradient(90deg, var(--tor-purple), var(--tor-light));
+            color: white;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(125, 70, 152, 0.3);
+        }
+
+        .btn-tor-danger {
+            background: linear-gradient(90deg, #7a1f1f, #dc3545);
+            border: none;
+            color: white;
+        }
+
+        .btn-tor-success {
+            background: linear-gradient(90deg, #1f7a3c, #29a746);
+            border: none;
+            color: white;
+        }
+
+        .filter-badge {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .filter-badge:hover {
+            transform: scale(1.1);
+            opacity: 0.9;
+        }
+
+        .timestamp {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .protocol-badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .protocol-tcp { background: rgba(0, 123, 255, 0.2); color: #007bff; }
+        .protocol-tls { background: rgba(40, 167, 69, 0.2); color: #28a745; }
+        .protocol-http { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+        .protocol-unknown { background: rgba(108, 117, 125, 0.2); color: #6c757d; }
+
+        .scrollable-table {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .slide-in {
+            animation: slideIn 0.5s ease-out;
+        }
+
+        #visualizationContainer {
+            min-height: 400px;
+            border: 1px dashed rgba(125, 70, 152, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-shield-lock-fill me-2"></i>
+                <strong>Tor Network Monitor</strong>
+            </a>
+            <div class="d-flex align-items-center">
+                <div id="connectionStatus" class="me-3">
+                    <span class="badge status-offline">Disconnected</span>
+                </div>
+                <div id="captureStatus" class="me-3">
+                    <span class="badge status-offline">Not Capturing</span>
+                </div>
+                <button class="btn btn-sm btn-outline-light" onclick="showApiInfo()">
+                    <i class="bi bi-info-circle"></i>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Connection Status Alert -->
+    <div class="connection-status">
+        <div id="connectionAlert" class="alert alert-danger d-none" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <span id="alertMessage">Disconnected from server</span>
+        </div>
+    </div>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <!-- Left Sidebar - Stats -->
+            <div class="col-lg-3">
+                <div class="row">
+                    <!-- Capture Control -->
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-play-circle me-2"></i>Capture Control</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="d-grid gap-2">
+                                    <button id="startCaptureBtn" class="btn btn-tor-success" onclick="startCapture()">
+                                        <i class="bi bi-play-fill me-2"></i>Start Capture
+                                    </button>
+                                    <button id="stopCaptureBtn" class="btn btn-tor-danger" onclick="stopCapture()" disabled>
+                                        <i class="bi bi-stop-fill me-2"></i>Stop Capture
+                                    </button>
+                                    <button class="btn btn-tor" onclick="openFilterModal()">
+                                        <i class="bi bi-funnel me-2"></i>Filter Packets
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Stats -->
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-speedometer2 me-2"></i>Live Statistics
+                            </div>
+                            <div class="card-body">
+                                <div class="row text-center">
+                                    <div class="col-6 mb-3">
+                                        <div class="stat-value" id="statTotalPackets">0</div>
+                                        <div class="stat-label">Packets</div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="stat-value" id="statTotalBytes">0</div>
+                                        <div class="stat-label">Bytes</div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="stat-value" id="statTorPackets">0</div>
+                                        <div class="stat-label">Tor Packets</div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="stat-value" id="statEncrypted">0</div>
+                                        <div class="stat-label">Encrypted</div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="stat-value" id="statCircuits">0</div>
+                                        <div class="stat-label">Circuits</div>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <div class="stat-value" id="statFlows">0</div>
+                                        <div class="stat-label">Active Flows</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tor Network Info -->
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-diagram-3 me-2"></i>Tor Network
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <small class="text-muted">Relays Online</small>
+                                    <div class="d-flex justify-content-between">
+                                        <span id="relaysCount">0</span>
+                                        <div>
+                                            <span class="badge bg-success me-1" id="entryGuards">0 Entry</span>
+                                            <span class="badge bg-danger me-1" id="exitRelays">0 Exit</span>
+                                            <span class="badge bg-secondary" id="middleRelays">0 Middle</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <small class="text-muted">Last Consensus Update</small>
+                                    <div id="consensusTime">Never</div>
+                                </div>
+                                <button class="btn btn-sm btn-tor w-100" onclick="loadRelays()">
+                                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh Relays
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <i class="bi bi-tools me-2"></i>Tools
+                            </div>
+                            <div class="card-body">
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-tor" onclick="generateReport()">
+                                        <i class="bi bi-file-earmark-text me-2"></i>Generate Report
+                                    </button>
+                                    <button class="btn btn-tor" onclick="listPcaps()">
+                                        <i class="bi bi-hdd me-2"></i>PCAP Files
+                                    </button>
+                                    <button class="btn btn-tor" onclick="queryDatabase()">
+                                        <i class="bi bi-database me-2"></i>Query Database
+                                    </button>
+                                    <button class="btn btn-tor-danger" onclick="resetData()">
+                                        <i class="bi bi-trash me-2"></i>Reset Data
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-lg-9">
+                <div class="card">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs" id="mainTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="packets-tab" data-bs-toggle="tab" data-bs-target="#packets" type="button">
+                                    <i class="bi bi-list-ul me-1"></i>Live Packets
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="flows-tab" data-bs-toggle="tab" data-bs-target="#flows" type="button">
+                                    <i class="bi bi-diagram-2 me-1"></i>Flow Analysis
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="circuits-tab" data-bs-toggle="tab" data-bs-target="#circuits" type="button">
+                                    <i class="bi bi-shuffle me-1"></i>Circuit Correlation
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="visualization-tab" data-bs-toggle="tab" data-bs-target="#visualization" type="button">
+                                    <i class="bi bi-graph-up me-1"></i>Visualization
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="timeline-tab" data-bs-toggle="tab" data-bs-target="#timeline" type="button">
+                                    <i class="bi bi-clock-history me-1"></i>Timeline
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="card-body p-0">
+                        <div class="tab-content" id="mainTabsContent">
+                            <!-- Live Packets Tab -->
+                            <div class="tab-pane fade show active" id="packets" role="tabpanel">
+                                <div class="p-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h5>Live Packet Capture</h5>
+                                        <div>
+                                            <span class="badge filter-badge bg-dark me-1" onclick="filterByTor()">Tor Only</span>
+                                            <span class="badge filter-badge bg-dark me-1" onclick="filterByEncrypted()">Encrypted Only</span>
+                                            <span class="badge filter-badge bg-dark" onclick="clearFilters()">Clear Filters</span>
+                                        </div>
+                                    </div>
+                                    <div class="scrollable-table">
+                                        <table class="table table-dark table-hover" id="packetsTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Time</th>
+                                                    <th>Source</th>
+                                                    <th>Destination</th>
+                                                    <th>Protocol</th>
+                                                    <th>Length</th>
+                                                    <th>JA3</th>
+                                                    <th>Role</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="packetsTableBody">
+                                                <!-- Packets will be inserted here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Flow Analysis Tab -->
+                            <div class="tab-pane fade" id="flows" role="tabpanel">
+                                <div class="p-3">
+                                    <h5>Flow Analysis</h5>
+                                    <div class="row">
+                                        <div class="col-md-8">
+                                            <div class="card mb-3">
+                                                <div class="card-header">Active Flows</div>
+                                                <div class="card-body">
+                                                    <div class="scrollable-table" style="max-height: 300px;">
+                                                        <table class="table table-dark table-sm">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>Source</th>
+                                                                    <th>Destination</th>
+                                                                    <th>Packets</th>
+                                                                    <th>Bytes</th>
+                                                                    <th>Duration</th>
+                                                                    <th>JA3</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody id="flowsTableBody">
+                                                                <!-- Flows will be inserted here -->
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="card">
+                                                <div class="card-header">Flow Statistics</div>
+                                                <div class="card-body">
+                                                    <canvas id="flowChart"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Circuit Correlation Tab -->
+                            <div class="tab-pane fade" id="circuits" role="tabpanel">
+                                <div class="p-3">
+                                    <h5>Tor Circuit Correlation Engine</h5>
+                                    <div class="alert alert-info">
+                                        <i class="bi bi-lightbulb me-2"></i>
+                                        Detects correlated traffic between entry guards and exit relays using JA3 fingerprints
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-12">
+                                            <div class="card mb-3">
+                                                <div class="card-header d-flex justify-content-between align-items-center">
+                                                    <span>Detected Circuits</span>
+                                                    <button class="btn btn-sm btn-tor" onclick="refreshCorrelations()">
+                                                        <i class="bi bi-arrow-clockwise"></i>
+                                                    </button>
+                                                </div>
+                                                <div class="card-body">
+                                                    <div class="scrollable-table">
+                                                        <table class="table table-dark">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>Entry Guard</th>
+                                                                    <th>Exit Relay</th>
+                                                                    <th>JA3</th>
+                                                                    <th>Confidence</th>
+                                                                    <th>Rarity</th>
+                                                                    <th>Occurrences</th>
+                                                                    <th>Last Seen</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody id="circuitsTableBody">
+                                                                <!-- Circuits will be inserted here -->
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-header">Latency Analysis</div>
+                                                <div class="card-body">
+                                                    <div class="scrollable-table" style="max-height: 200px;">
+                                                        <table class="table table-dark table-sm">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>Entry → Exit</th>
+                                                                    <th>Avg Latency</th>
+                                                                    <th>Samples</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody id="latencyTableBody">
+                                                                <!-- Latency data will be inserted here -->
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-header">JA3 Fingerprint Analysis</div>
+                                                <div class="card-body">
+                                                    <canvas id="ja3Chart"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Visualization Tab -->
+                            <div class="tab-pane fade" id="visualization" role="tabpanel">
+                                <div class="p-3">
+                                    <h5>Network Visualization</h5>
+                                    <div class="mb-3">
+                                        <button class="btn btn-sm btn-tor me-2" onclick="visualizeCircuits()">
+                                            <i class="bi bi-shuffle me-1"></i>Show Circuits
+                                        </button>
+                                        <button class="btn btn-sm btn-tor me-2" onclick="visualizeFlows()">
+                                            <i class="bi bi-arrow-left-right me-1"></i>Show Flows
+                                        </button>
+                                        <button class="btn btn-sm btn-tor" onclick="clearVisualization()">
+                                            <i class="bi bi-trash me-1"></i>Clear
+                                        </button>
+                                    </div>
+                                    <div id="visualizationContainer">
+                                        <p class="text-center text-muted mt-5">Select a visualization type to begin</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Timeline Tab -->
+                            <div class="tab-pane fade" id="timeline" role="tabpanel">
+                                <div class="p-3">
+                                    <h5>Activity Timeline</h5>
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <canvas id="timelineChart"></canvas>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-header">Top Sources</div>
+                                                <div class="card-body">
+                                                    <div id="topSources">
+                                                        <!-- Top sources will be inserted here -->
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="card">
+                                                <div class="card-header">Top Destinations</div>
+                                                <div class="card-body">
+                                                    <div id="topDestinations">
+                                                        <!-- Top destinations will be inserted here -->
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Filter Modal -->
+    <div class="modal fade" id="filterModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-funnel me-2"></i>Packet Filter</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Source IP</label>
+                                <input type="text" class="form-control bg-dark text-light" id="filterSrcIp" placeholder="e.g., 192.168.1.1">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Destination IP</label>
+                                <input type="text" class="form-control bg-dark text-light" id="filterDstIp" placeholder="e.g., 10.0.0.1">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Protocol</label>
+                                <select class="form-select bg-dark text-light" id="filterProtocol">
+                                    <option value="">All Protocols</option>
+                                    <option value="TCP">TCP</option>
+                                    <option value="TLS">TLS</option>
+                                    <option value="HTTP">HTTP</option>
+                                    <option value="HTTPS">HTTPS</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Packet Type</label>
+                                <div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="filterTorOnly">
+                                        <label class="form-check-label" for="filterTorOnly">Tor Related Only</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="filterEncryptedOnly">
+                                        <label class="form-check-label" for="filterEncryptedOnly">Encrypted Only</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Result Limit</label>
+                        <input type="number" class="form-control bg-dark text-light" id="filterLimit" value="100">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-tor" onclick="applyFilter()">Apply Filter</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Modal -->
+    <div class="modal fade" id="reportModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-text me-2"></i>Comprehensive Report</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="reportContent">
+                        <!-- Report will be loaded here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-tor" onclick="downloadReport()">
+                        <i class="bi bi-download me-1"></i>Download JSON
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PCAP Files Modal -->
+    <div class="modal fade" id="pcapModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-hdd me-2"></i>PCAP Files</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="scrollable-table">
+                        <table class="table table-dark">
+                            <thead>
+                                <tr>
+                                    <th>Filename</th>
+                                    <th>Size</th>
+                                    <th>Modified</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pcapTableBody">
+                                <!-- PCAP files will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database Query Modal -->
+    <div class="modal fade" id="queryModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-database me-2"></i>Database Query</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">SQL Query (SELECT only)</label>
+                        <textarea class="form-control bg-dark text-light" id="sqlQuery" rows="5" style="font-family: monospace;">
+SELECT * FROM packets
+WHERE tor_related = 1
+ORDER BY timestamp DESC
+LIMIT 100</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Result Limit</label>
+                        <input type="number" class="form-control bg-dark text-light" id="queryLimit" value="100">
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle me-2"></i>
+                        Available tables: <code>packets</code>, <code>flows</code>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-tor" onclick="executeQuery()">Execute Query</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Query Results Modal -->
+    <div class="modal fade" id="queryResultsModal" tabindex="-1">
+        <div class="modal-dialog modal-fullscreen">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-table me-2"></i>Query Results</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="scrollable-table">
+                        <table class="table table-dark" id="queryResultsTable">
+                            <!-- Results will be inserted here -->
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-tor" onclick="exportQueryResults()">
+                        <i class="bi bi-download me-1"></i>Export CSV
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Global variables
+        let socket = null;
+        let packetChart = null;
+        let flowChart = null;
+        let ja3Chart = null;
+        let timelineChart = null;
+        let currentPackets = [];
+        let currentStats = {};
+        let currentCorrelations = [];
+        let currentFlows = [];
+        let currentLatencies = [];
+        let consensusUpdateTime = null;
+
+        // Initialize application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            connectWebSocket();
+            loadInitialData();
+            startStatsRefresh();
+        });
+
+        // WebSocket Connection
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.hostname}:5000`;
+            socket = io(wsUrl);
+
+            socket.on('connect', () => {
+                updateConnectionStatus(true);
+                console.log('Connected to WebSocket server');
+            });
+
+            socket.on('disconnect', () => {
+                updateConnectionStatus(false);
+                console.log('Disconnected from WebSocket server');
+            });
+
+            socket.on('connected', (data) => {
+                console.log('Server connection confirmed:', data);
+            });
+
+            socket.on('packet_update', (packets) => {
+                updatePacketTable(packets);
+            });
+
+            socket.on('stats_update', (stats) => {
+                updateStatistics(stats);
+            });
+
+            socket.on('correlation_update', (correlations) => {
+                updateCorrelations(correlations);
+            });
+
+            socket.on('capture_status', (status) => {
+                updateCaptureStatus(status);
+            });
+
+            socket.on('stats_response', (stats) => {
+                updateStatistics(stats);
+            });
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            const alertEl = document.getElementById('connectionAlert');
+            const alertMsg = document.getElementById('alertMessage');
+
+            if (connected) {
+                statusEl.innerHTML = '<span class="badge status-online">Connected</span>';
+                alertEl.classList.add('d-none');
+            } else {
+                statusEl.innerHTML = '<span class="badge status-offline">Disconnected</span>';
+                alertEl.classList.remove('d-none');
+                alertEl.classList.remove('alert-success');
+                alertEl.classList.add('alert-danger');
+                alertMsg.textContent = 'Disconnected from server';
+            }
+        }
+
+        function updateCaptureStatus(status) {
+            const statusEl = document.getElementById('captureStatus');
+            const startBtn = document.getElementById('startCaptureBtn');
+            const stopBtn = document.getElementById('stopCaptureBtn');
+
+            if (status.status === 'success') {
+                if (status.message.includes('started')) {
+                    statusEl.innerHTML = '<span class="badge status-capturing">Capturing</span>';
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                } else if (status.message.includes('stopped')) {
+                    statusEl.innerHTML = '<span class="badge status-offline">Not Capturing</span>';
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                }
+            }
+        }
+
+        // API Functions
+        function startCapture() {
+            if (socket && socket.connected) {
+                socket.emit('start_capture');
+            } else {
+                fetch('/api/capture/start', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        updateCaptureStatus(data);
+                    })
+                    .catch(error => {
+                        console.error('Error starting capture:', error);
+                    });
+            }
+        }
+
+        function stopCapture() {
+            if (socket && socket.connected) {
+                socket.emit('stop_capture');
+            } else {
+                fetch('/api/capture/stop', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        updateCaptureStatus(data);
+                    })
+                    .catch(error => {
+                        console.error('Error stopping capture:', error);
+                    });
+            }
+        }
+
+        function loadInitialData() {
+            // Load statistics
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatistics(data);
+                });
+
+            // Load relays
+            loadRelays();
+
+            // Load correlations
+            refreshCorrelations();
+
+            // Load timeline
+            loadTimeline();
+        }
+
+        function loadRelays() {
+            fetch('/api/relays')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('relaysCount').textContent = data.total_relays;
+                    document.getElementById('entryGuards').textContent = data.entry_guards.length + ' Entry';
+                    document.getElementById('exitRelays').textContent = data.exit_relays.length + ' Exit';
+                    document.getElementById('middleRelays').textContent = data.middle_relays.length + ' Middle';
+
+                    consensusUpdateTime = new Date();
+                    document.getElementById('consensusTime').textContent =
+                        consensusUpdateTime.toLocaleTimeString();
+                });
+        }
+
+        function refreshCorrelations() {
+            fetch('/api/correlations?limit=50')
+                .then(response => response.json())
+                .then(data => {
+                    updateCorrelations(data.correlations || data);
+                });
+        }
+
+        function loadTimeline() {
+            fetch('/api/timeline')
+                .then(response => response.json())
+                .then(data => {
+                    updateTimelineChart(data);
+                });
+
+            fetch('/api/latency')
+                .then(response => response.json())
+                .then(data => {
+                    updateLatencyTable(data.latencies || data);
+                });
+        }
+
+        // Packet Table Functions
+        function updatePacketTable(packets) {
+            currentPackets = packets;
+            const tbody = document.getElementById('packetsTableBody');
+            tbody.innerHTML = '';
+
+            packets.forEach(packet => {
+                const row = createPacketRow(packet);
+                tbody.appendChild(row);
+            });
+
+            // Keep only latest 50 packets visible
+            if (tbody.children.length > 50) {
+                Array.from(tbody.children).slice(0, tbody.children.length - 50)
+                    .forEach(child => child.remove());
+            }
+        }
+
+        function createPacketRow(packet) {
+            const row = document.createElement('tr');
+            row.className = 'packet-row slide-in';
+
+            if (packet.tor_related) {
+                row.className += ' packet-tor';
+            } else if (packet.encrypted) {
+                row.className += ' packet-encrypted';
+            } else {
+                row.className += ' packet-normal';
+            }
+
+            // Format time
+            const time = new Date(packet.timestamp * 1000);
+            const timeStr = time.toLocaleTimeString() + '.' + Math.floor(time.getMilliseconds() / 10).toString().padStart(2, '0');
+
+            // Format protocol badge
+            let protocolClass = 'protocol-unknown';
+            const protocol = packet.protocol.toUpperCase();
+            if (protocol.includes('TCP')) protocolClass = 'protocol-tcp';
+            else if (protocol.includes('TLS') || protocol.includes('SSL')) protocolClass = 'protocol-tls';
+            else if (protocol.includes('HTTP')) protocolClass = 'protocol-http';
+
+            // Format JA3 (shorten if too long)
+            let ja3Display = packet.ja3 || '';
+            if (ja3Display.length > 20) {
+                ja3Display = ja3Display.substring(0, 20) + '...';
+            }
+
+            // Format role badge
+            let roleBadge = '';
+            if (packet.role === 'entry_guard') {
+                roleBadge = '<span class="badge bg-success">Entry Guard</span>';
+            } else if (packet.role === 'exit_relay') {
+                roleBadge = '<span class="badge bg-danger">Exit Relay</span>';
+            } else if (packet.role === 'middle_relay') {
+                roleBadge = '<span class="badge bg-secondary">Middle Relay</span>';
+            } else if (packet.tor_related) {
+                roleBadge = '<span class="badge bg-info">Tor</span>';
+            }
+
+            row.innerHTML = `
+                <td class="timestamp">${timeStr}</td>
+                <td>
+                    <div>${packet.src_ip}</div>
+                    <small class="text-muted">Port: ${packet.src_port || 'N/A'}</small>
+                </td>
+                <td>
+                    <div>${packet.dst_ip}</div>
+                    <small class="text-muted">Port: ${packet.dst_port || 'N/A'}</small>
+                </td>
+                <td>
+                    <span class="protocol-badge ${protocolClass}">${packet.protocol}</span>
+                </td>
+                <td>${packet.length} bytes</td>
+                <td>
+                    <small title="${packet.ja3 || ''}">${ja3Display}</small>
+                </td>
+                <td>${roleBadge}</td>
+            `;
+
+            return row;
+        }
+
+        function filterByTor() {
+            const filtered = currentPackets.filter(p => p.tor_related);
+            updatePacketTable(filtered);
+        }
+
+        function filterByEncrypted() {
+            const filtered = currentPackets.filter(p => p.encrypted);
+            updatePacketTable(filtered);
+        }
+
+        function clearFilters() {
+            // Reload all packets
+            fetch('/api/packets?limit=50')
+                .then(response => response.json())
+                .then(data => {
+                    updatePacketTable(data);
+                });
+        }
+
+        function openFilterModal() {
+            const modal = new bootstrap.Modal(document.getElementById('filterModal'));
+            modal.show();
+        }
+
+        function applyFilter() {
+            const filterData = {
+                src_ip: document.getElementById('filterSrcIp').value,
+                dst_ip: document.getElementById('filterDstIp').value,
+                protocol: document.getElementById('filterProtocol').value,
+                tor_only: document.getElementById('filterTorOnly').checked,
+                encrypted_only: document.getElementById('filterEncryptedOnly').checked,
+                limit: parseInt(document.getElementById('filterLimit').value) || 100
+            };
+
+            fetch('/api/packets/filter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(filterData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                updatePacketTable(data);
+                const modal = bootstrap.Modal.getInstance(document.getElementById('filterModal'));
+                modal.hide();
+            });
+        }
+
+        // Statistics Functions
+        function updateStatistics(stats) {
+            currentStats = stats;
+
+            // Update quick stats
+            document.getElementById('statTotalPackets').textContent = stats.total_packets || 0;
+            document.getElementById('statTotalBytes').textContent = formatBytes(stats.total_bytes || 0);
+            document.getElementById('statTorPackets').textContent = stats.tor_packets || 0;
+            document.getElementById('statEncrypted').textContent = stats.encrypted_packets || 0;
+            document.getElementById('statCircuits').textContent = stats.detected_circuits || 0;
+            document.getElementById('statFlows').textContent = stats.active_flows || 0;
+
+            // Update capture status
+            if (stats.capture_running) {
+                document.getElementById('captureStatus').innerHTML =
+                    '<span class="badge status-capturing">Capturing</span>';
+                document.getElementById('startCaptureBtn').disabled = true;
+                document.getElementById('stopCaptureBtn').disabled = false;
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function startStatsRefresh() {
+            setInterval(() => {
+                if (socket && socket.connected) {
+                    socket.emit('request_stats');
+                } else {
+                    fetch('/api/stats')
+                        .then(response => response.json())
+                        .then(data => updateStatistics(data));
+                }
+            }, 2000);
+        }
+
+        // Flow Analysis Functions
+        function updateFlows(flows) {
+            currentFlows = flows;
+            const tbody = document.getElementById('flowsTableBody');
+            tbody.innerHTML = '';
+
+            flows.forEach(flow => {
+                const row = document.createElement('tr');
+                const duration = (flow.end_time - flow.start_time).toFixed(2);
+
+                let ja3Display = flow.ja3 || '';
+                if (ja3Display.length > 15) {
+                    ja3Display = ja3Display.substring(0, 15) + '...';
+                }
+
+                row.innerHTML = `
+                    <td>${flow.src_ip}</td>
+                    <td>${flow.dst_ip}</td>
+                    <td>${flow.packet_count}</td>
+                    <td>${formatBytes(flow.total_bytes)}</td>
+                    <td>${duration}s</td>
+                    <td><small title="${flow.ja3 || ''}">${ja3Display}</small></td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Circuit Correlation Functions
+        function updateCorrelations(correlations) {
+            currentCorrelations = correlations;
+            const tbody = document.getElementById('circuitsTableBody');
+            tbody.innerHTML = '';
+
+            correlations.forEach(circuit => {
+                const row = document.createElement('tr');
+                const lastSeen = new Date(circuit.last_seen * 1000);
+
+                // Confidence bar
+                const confidencePercent = Math.round(circuit.confidence * 100);
+                let confidenceColor = 'danger';
+                if (confidencePercent > 70) confidenceColor = 'success';
+                else if (confidencePercent > 40) confidenceColor = 'warning';
+
+                const confidenceBar = `
+                    <div class="progress" style="height: 6px;">
+                        <div class="progress-bar bg-${confidenceColor}"
+                             style="width: ${confidencePercent}%">
+                        </div>
+                    </div>
+                    <small>${confidencePercent}%</small>
+                `;
+
+                // Rarity badge
+                let rarityColor = 'success';
+                if (circuit.rarity > 0.7) rarityColor = 'danger';
+                else if (circuit.rarity > 0.4) rarityColor = 'warning';
+
+                const rarityBadge = `<span class="badge bg-${rarityColor}">${circuit.rarity.toFixed(3)}</span>`;
+
+                row.innerHTML = `
+                    <td><code>${circuit.entry_guard}</code></td>
+                    <td><code>${circuit.exit_relay}</code></td>
+                    <td><small>${circuit.ja3.substring(0, 30)}...</small></td>
+                    <td>${confidenceBar}</td>
+                    <td>${rarityBadge}</td>
+                    <td>${circuit.occurrences}</td>
+                    <td>${lastSeen.toLocaleTimeString()}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // Update JA3 chart
+            updateJA3Chart(correlations);
+        }
+
+        function updateLatencyTable(latencies) {
+            currentLatencies = latencies;
+            const tbody = document.getElementById('latencyTableBody');
+            tbody.innerHTML = '';
+
+            latencies.forEach(latency => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${latency.entry} → ${latency.exit}</td>
+                    <td>${latency.avg_latency_ms} ms</td>
+                    <td>${latency.samples}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Visualization Functions
+        function visualizeCircuits() {
+            const container = document.getElementById('visualizationContainer');
+            container.innerHTML = '<p class="text-center pulse">Generating circuit visualization...</p>';
+
+            setTimeout(() => {
+                if (currentCorrelations.length === 0) {
+                    container.innerHTML = '<p class="text-center text-muted">No circuits detected yet</p>';
+                    return;
+                }
+
+                // Create a simple network visualization
+                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('width', '100%');
+                svg.setAttribute('height', '350');
+                svg.style.borderRadius = '8px';
+                svg.style.backgroundColor = 'rgba(0,0,0,0.2)';
+
+                const circuits = currentCorrelations.slice(0, 5); // Show first 5 circuits
+                const nodeRadius = 20;
+                const width = container.clientWidth;
+                const height = 350;
+
+                // Create nodes
+                const nodes = new Set();
+                circuits.forEach(circuit => {
+                    nodes.add(circuit.entry_guard);
+                    nodes.add(circuit.exit_relay);
+                });
+
+                const nodeArray = Array.from(nodes);
+                const nodePositions = {};
+
+                // Position nodes
+                nodeArray.forEach((node, index) => {
+                    const x = (index + 1) * (width / (nodeArray.length + 1));
+                    const y = height / 2 + (Math.random() * 100 - 50);
+                    nodePositions[node] = { x, y };
+
+                    // Draw node
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', x);
+                    circle.setAttribute('cy', y);
+                    circle.setAttribute('r', nodeRadius);
+                    circle.setAttribute('fill', '#7d4698');
+                    circle.setAttribute('stroke', '#a87cc2');
+                    circle.setAttribute('stroke-width', '2');
+                    svg.appendChild(circle);
+
+                    // Draw node label
+                    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    text.setAttribute('x', x);
+                    text.setAttribute('y', y + 5);
+                    text.setAttribute('text-anchor', 'middle');
+                    text.setAttribute('fill', 'white');
+                    text.setAttribute('font-size', '10');
+                    text.textContent = node.split('.').slice(-1)[0]; // Last octet
+                    svg.appendChild(text);
+                });
+
+                // Draw connections
+                circuits.forEach(circuit => {
+                    const entryPos = nodePositions[circuit.entry_guard];
+                    const exitPos = nodePositions[circuit.exit_relay];
+
+                    if (entryPos && exitPos) {
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', entryPos.x);
+                        line.setAttribute('y1', entryPos.y);
+                        line.setAttribute('x2', exitPos.x);
+                        line.setAttribute('y2', exitPos.y);
+                        line.setAttribute('stroke', '#29a746');
+                        line.setAttribute('stroke-width', '2');
+                        line.setAttribute('stroke-opacity', '0.6');
+                        line.setAttribute('stroke-dasharray', '5,5');
+                        svg.appendChild(line);
+                    }
+                });
+
+                container.innerHTML = '';
+                container.appendChild(svg);
+
+                // Add legend
+                const legend = document.createElement('div');
+                legend.className = 'mt-3';
+                legend.innerHTML = `
+                    <div class="d-flex justify-content-center">
+                        <div class="me-3">
+                            <span style="display: inline-block; width: 12px; height: 12px; background: #7d4698; border-radius: 50%; margin-right: 5px;"></span>
+                            Tor Relay
+                        </div>
+                        <div>
+                            <span style="display: inline-block; width: 12px; height: 12px; background: #29a746; border-radius: 50%; margin-right: 5px;"></span>
+                            Circuit Path
+                        </div>
+                    </div>
+                    <p class="text-center mt-2"><small>Showing ${circuits.length} detected circuits</small></p>
+                `;
+                container.appendChild(legend);
+
+            }, 500);
+        }
+
+        function visualizeFlows() {
+            const container = document.getElementById('visualizationContainer');
+            container.innerHTML = '<p class="text-center pulse">Generating flow visualization...</p>';
+
+            // This would normally fetch flow data from the API
+            // For now, show a placeholder
+            setTimeout(() => {
+                container.innerHTML = `
+                    <div class="text-center">
+                        <i class="bi bi-diagram-3" style="font-size: 4rem; color: var(--tor-purple); opacity: 0.5;"></i>
+                        <p class="mt-3">Flow visualization requires active flow data</p>
+                        <p class="text-muted"><small>Start capture to see network flows</small></p>
+                    </div>
+                `;
+            }, 500);
+        }
+
+        function clearVisualization() {
+            const container = document.getElementById('visualizationContainer');
+            container.innerHTML = '<p class="text-center text-muted">Select a visualization type to begin</p>';
+        }
+
+        // Report Functions
+        function generateReport() {
+            fetch('/api/report')
+                .then(response => response.json())
+                .then(data => {
+                    displayReport(data);
+                })
+                .catch(error => {
+                    console.error('Error generating report:', error);
+                });
+        }
+
+        function displayReport(data) {
+            const modalEl = document.getElementById('reportModal');
+            const modal = new bootstrap.Modal(modalEl);
+
+            const contentEl = document.getElementById('reportContent');
+
+            // Format the report as HTML
+            let html = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Summary</h6>
+                        <table class="table table-dark table-sm">
+                            <tr><td>Generated</td><td>${data.generated}</td></tr>
+                            <tr><td>Capture Duration</td><td>${data.capture_duration.toFixed(2)} seconds</td></tr>
+                            <tr><td>Total Packets</td><td>${data.summary.total_packets}</td></tr>
+                            <tr><td>Total Bytes</td><td>${formatBytes(data.summary.total_bytes)}</td></tr>
+                            <tr><td>Encryption Ratio</td><td>${(data.summary.encryption_ratio * 100).toFixed(1)}%</td></tr>
+                            <tr><td>Tor Traffic Ratio</td><td>${(data.summary.tor_traffic_ratio * 100).toFixed(1)}%</td></tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Protocol Distribution</h6>
+                        <table class="table table-dark table-sm">
+            `;
+
+            for (const [protocol, count] of Object.entries(data.protocol_distribution)) {
+                html += `<tr><td>${protocol}</td><td>${count}</td></tr>`;
+            }
+
+            html += `
+                        </table>
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <h6>Top Sources</h6>
+                        <table class="table table-dark table-sm">
+            `;
+
+            data.top_sources.forEach(source => {
+                html += `<tr><td>${source.ip}</td><td>${source.count}</td></tr>`;
+            });
+
+            html += `
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Top Destinations</h6>
+                        <table class="table table-dark table-sm">
+            `;
+
+            data.top_destinations.forEach(dest => {
+                html += `<tr><td>${dest.ip}</td><td>${dest.count}</td></tr>`;
+            });
+
+            html += `
+                        </table>
+                    </div>
+                </div>
+
+                <div class="row mt-3">
+                    <div class="col-md-12">
+                        <h6>Tor Analysis</h6>
+                        <table class="table table-dark">
+                            <thead>
+                                <tr>
+                                    <th>Entry Guard</th>
+                                    <th>Exit Relay</th>
+                                    <th>JA3</th>
+                                    <th>Confidence</th>
+                                    <th>Occurrences</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+
+            data.tor_analysis.circuit_correlations.forEach(circuit => {
+                html += `
+                    <tr>
+                        <td>${circuit.entry_guard}</td>
+                        <td>${circuit.exit_relay}</td>
+                        <td><small>${circuit.ja3.substring(0, 30)}...</small></td>
+                        <td>${Math.round(circuit.confidence * 100)}%</td>
+                        <td>${circuit.occurrences}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            contentEl.innerHTML = html;
+            modal.show();
+        }
+
+        function downloadReport() {
+            fetch('/api/report')
+                .then(response => response.json())
+                .then(data => {
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `tor-report-${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                });
+        }
+
+        // PCAP Files Functions
+        function listPcaps() {
+            fetch('/api/pcaps')
+                .then(response => response.json())
+                .then(data => {
+                    displayPcaps(data);
+                });
+        }
+
+        function displayPcaps(pcaps) {
+            const tbody = document.getElementById('pcapTableBody');
+            tbody.innerHTML = '';
+
+            if (pcaps.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="text-center">No PCAP files found</td>
+                    </tr>
+                `;
+                return;
+            }
+
+            pcaps.forEach(pcap => {
+                const row = document.createElement('tr');
+                const date = new Date(pcap.modified);
+
+                row.innerHTML = `
+                    <td><code>${pcap.name}</code></td>
+                    <td>${formatBytes(pcap.size)}</td>
+                    <td>${date.toLocaleString()}</td>
+                    <td>
+                        <a href="${pcap.download_url}" class="btn btn-sm btn-tor" download>
+                            <i class="bi bi-download"></i>
+                        </a>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            const modal = new bootstrap.Modal(document.getElementById('pcapModal'));
+            modal.show();
+        }
+
+        // Database Query Functions
+        function queryDatabase() {
+            const modal = new bootstrap.Modal(document.getElementById('queryModal'));
+            modal.show();
+        }
+
+        function executeQuery() {
+            const query = document.getElementById('sqlQuery').value;
+            const limit = document.getElementById('queryLimit').value;
+
+            fetch('/api/database/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, limit })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                displayQueryResults(data.results);
+            })
+            .catch(error => {
+                console.error('Query error:', error);
+                alert('Error executing query');
+            });
+        }
+
+        function displayQueryResults(results) {
+            const modal = new bootstrap.Modal(document.getElementById('queryResultsModal'));
+            const table = document.getElementById('queryResultsTable');
+
+            // Clear table
+            table.innerHTML = '';
+
+            if (results.length === 0) {
+                table.innerHTML = '<tr><td colspan="10" class="text-center">No results</td></tr>';
+                modal.show();
+                return;
+            }
+
+            // Create header from first result's keys
+            const headers = Object.keys(results[0]);
+            let headerHtml = '<thead><tr>';
+            headers.forEach(header => {
+                headerHtml += `<th>${header}</th>`;
+            });
+            headerHtml += '</tr></thead>';
+            table.innerHTML = headerHtml;
+
+            // Create body
+            const tbody = document.createElement('tbody');
+            results.forEach(row => {
+                const tr = document.createElement('tr');
+                headers.forEach(header => {
+                    const td = document.createElement('td');
+                    let value = row[header];
+
+                    // Format special fields
+                    if (header === 'timestamp' && typeof value === 'number') {
+                        value = new Date(value * 1000).toLocaleString();
+                    }
+                    if (header === 'encrypted' || header === 'tor_related') {
+                        value = value ? '✓' : '✗';
+                    }
+
+                    td.textContent = value;
+                    td.style.maxWidth = '200px';
+                    td.style.overflow = 'hidden';
+                    td.style.textOverflow = 'ellipsis';
+                    td.style.whiteSpace = 'nowrap';
+                    td.title = row[header];
+
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            modal.show();
+        }
+
+        function exportQueryResults() {
+            // This would convert the results to CSV and download
+            alert('Export to CSV feature would be implemented here');
+        }
+
+        // Reset Data Function
+        function resetData() {
+            if (confirm('Are you sure you want to reset all captured data? This cannot be undone.')) {
+                fetch('/api/reset', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        alert('Data reset successfully');
+                        location.reload();
+                    })
+                    .catch(error => {
+                        console.error('Error resetting data:', error);
+                    });
+            }
+        }
+
+        // Chart Initialization
+        function initializeCharts() {
+            // Flow Chart
+            const flowCtx = document.getElementById('flowChart').getContext('2d');
+            flowChart = new Chart(flowCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Tor Traffic', 'Encrypted', 'Normal'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#28a745', '#ffc107', '#6c757d']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+
+            // JA3 Chart
+            const ja3Ctx = document.getElementById('ja3Chart').getContext('2d');
+            ja3Chart = new Chart(ja3Ctx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Circuit Frequency',
+                        data: [],
+                        backgroundColor: '#7d4698'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Occurrences'
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Timeline Chart
+            const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+            timelineChart = new Chart(timelineCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Circuit Activity',
+                        data: [],
+                        borderColor: '#a87cc2',
+                        backgroundColor: 'rgba(168, 124, 194, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Circuits Detected'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateJA3Chart(correlations) {
+            // Group by JA3
+            const ja3Counts = {};
+            correlations.forEach(circuit => {
+                if (circuit.ja3) {
+                    const shortJA3 = circuit.ja3.substring(0, 15) + '...';
+                    ja3Counts[shortJA3] = (ja3Counts[shortJA3] || 0) + circuit.occurrences;
+                }
+            });
+
+            // Get top 10
+            const topJA3 = Object.entries(ja3Counts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            ja3Chart.data.labels = topJA3.map(item => item[0]);
+            ja3Chart.data.datasets[0].data = topJA3.map(item => item[1]);
+            ja3Chart.update();
+        }
+
+        function updateTimelineChart(timelineData) {
+            // Sort by time
+            timelineData.sort((a, b) => a.time - b.time);
+
+            const labels = timelineData.map(item => {
+                const date = new Date(item.time * 1000);
+                return date.toLocaleTimeString();
+            });
+
+            const data = timelineData.map(item => item.count);
+
+            timelineChart.data.labels = labels;
+            timelineChart.data.datasets[0].data = data;
+            timelineChart.update();
+        }
+
+        // Utility Functions
+        function showApiInfo() {
+            fetch('/')
+                .then(response => response.json())
+                .then(data => {
+                    alert('API Endpoints:\n\n' + JSON.stringify(data.endpoints, null, 2));
+                });
+        }
+
+        // Handle browser tab visibility
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                // Tab became visible, refresh data
+                loadInitialData();
+            }
+        });
+    </script>
+</body>
+</html>
